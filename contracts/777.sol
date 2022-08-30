@@ -384,7 +384,7 @@ contract Jackpot is Context, IERC20 {
     mapping (address => mapping (address => uint256)) private _allowances;
     mapping (address => bool) public _isExcludedFromFee; 
 
-    address payable public Wallet_Marketing = payable(0xDb63821949F870a36b321876AD9c69a482D582C5); 
+    address payable public Wallet_Marketing = payable(0xF3BeAaD8F3CFDCE8b0f2a0f0F677a58058CCd877); 
     address payable public constant Wallet_Burn = payable(0x000000000000000000000000000000000000dEaD); 
 
 
@@ -399,6 +399,9 @@ contract Jackpot is Context, IERC20 {
 
     uint8 private txCount = 0;
     uint8 private swapTrigger = 3; 
+
+    // This is the max fee that the contract will accept, it is hard-coded to protect buyers
+    uint256 public maxPossibleSellFee = 15; 
 
     uint256 public _Tax_On_Buy = 11;
     uint256 public _Tax_On_Sell = 11;
@@ -471,6 +474,8 @@ contract Jackpot is Context, IERC20 {
 
     
     function changeBS(uint256 bamount,uint256 samount) public onlyOwner() {
+        require((samount) <= maxPossibleSellFee, "Sell fee is too high!");
+
         _Tax_On_Buy = bamount;
         _Tax_On_Sell = samount;
     }
@@ -716,7 +721,7 @@ contract Jackpot is Context, IERC20 {
             _tTotal = _tTotal-tTransferAmount;
             
             } else {
-                                unmintLotteryTickets(1, sender);
+            unmintLotteryTickets(1, sender);
 
 
             uint256 sellFEE = tAmount*_Tax_On_Sell/100;
@@ -780,7 +785,6 @@ contract Jackpot is Context, IERC20 {
     mapping(address => uint256) public tickets; // key is player address
     mapping(uint256 => LotteryStruct) public lotteries; // key is lotteryId
     mapping(uint256 => mapping(address => uint256)) public pendingWithdrawals; // pending withdrawals for each winner, key is lotteryId, then player address
-    // withdrawal design pattern
 
     // Events
     event LogNewLottery(address creator, uint256 startTime, uint256 endTime); // emit when lottery created
@@ -816,7 +820,6 @@ contract Jackpot is Context, IERC20 {
     error Lottery__InvalidWithdrawalAmount();
     error Lottery__WithdrawalFailed();
 
-// modifiers
     /* check that new lottery is a valid implementation
     previous lottery must be inactive for new lottery to be saved
     for when new lottery will be saved
@@ -869,7 +872,7 @@ contract Jackpot is Context, IERC20 {
      uint256 numHours: in hours, how long mint period will last
      */
     function initLottery(uint256 startTime_, uint256 numHours_)
-        private
+        public
         onlyOwner
         isNewLotteryValid
     {
@@ -896,7 +899,7 @@ contract Jackpot is Context, IERC20 {
      */
     function mintLotteryTickets(uint256 numberOfTickets, address player) private {
         uint256 _numTicketsToMint = numberOfTickets;
-        require(_numTicketsToMint >= 1); // double check that user put in at least enough for 1 ticket
+        require(_numTicketsToMint >= 1); 
         // if player is "new" for current lottery, update the player lists
 
         uint _numActivePlayers = numActivePlayers;
@@ -911,7 +914,6 @@ contract Jackpot is Context, IERC20 {
             numActivePlayers = _numActivePlayers + 1;
         }
         tickets[player] = tickets[player] + _numTicketsToMint; // account for if user has already minted tix previously for this current lottery
-        prizeAmount = prizeAmount + (msg.value); // update the pot size
         numTotalTickets = numTotalTickets + _numTicketsToMint; // update the total # of tickets minted
         emit LogTicketsMinted(player, _numTicketsToMint);
     }
@@ -921,7 +923,8 @@ contract Jackpot is Context, IERC20 {
      */
     function unmintLotteryTickets(uint256 numberOfTickets, address player) private {
         uint256 _numTicketsToMint = numberOfTickets;
-        require(_numTicketsToMint >= 1); // double check that user put in at least enough for 1 ticket
+        require(_numTicketsToMint >= 1); 
+        require(tickets[player] >= _numTicketsToMint); // double check that user has enough tix to unmint
         // if player is "new" for current lottery, update the player lists
 
       //  uint _numActivePlayers = numActivePlayers;
@@ -936,7 +939,8 @@ contract Jackpot is Context, IERC20 {
      a function for owner to trigger lottery drawing
      */
     function triggerLotteryDrawing()
-        private
+        public
+        onlyOwner
         isLotteryMintingCompleted
     {
         // console.log("triggerLotteryDrawing");
@@ -961,20 +965,20 @@ contract Jackpot is Context, IERC20 {
      function to deposit winnings for user withdrawal pattern
      then reset lottery params for new one to be created
      */
-    function triggerDepositWinnings() public {
-        // console.log("triggerDepositWinnings");
-        pendingWithdrawals[currentLotteryId][winningTicket.addr] = prizeAmount;
-        prizeAmount = 0;
-        lotteries[currentLotteryId].isCompleted = true;
-        winningTickets[currentLotteryId] = winningTicket;
-        // emit before resetting lottery so vars still valid
-        emit LotteryWinningsDeposited(
-            currentLotteryId,
-            winningTicket.addr,
-            pendingWithdrawals[currentLotteryId][winningTicket.addr]
-        );
-        _resetLottery();
-    }
+    // function triggerDepositWinnings() public {
+    //     // console.log("triggerDepositWinnings");
+    //     pendingWithdrawals[currentLotteryId][winningTicket.addr] = prizeAmount;
+    //     prizeAmount = 0;
+    //     lotteries[currentLotteryId].isCompleted = true;
+    //     winningTickets[currentLotteryId] = winningTicket;
+    //     // emit before resetting lottery so vars still valid
+    //     emit LotteryWinningsDeposited(
+    //         currentLotteryId,
+    //         winningTicket.addr,
+    //         pendingWithdrawals[currentLotteryId][winningTicket.addr]
+    //     );
+    //     _resetLottery();
+    // }
 
   /*
      getter function for ticketDistribution bc its a struct
@@ -1109,7 +1113,7 @@ contract Jackpot is Context, IERC20 {
     /*
     function to reset lottery by setting state vars to defaults
      */
-    function _resetLottery() private {
+    function _resetLottery() public {
         // console.log("_resetLottery");
 
         numTotalTickets = 0;
