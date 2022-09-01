@@ -7,10 +7,8 @@
 * `yarn hardhat node` # private network
 * `yarn build` # build contracts
 
-## Testing
-
-* `yarn test`
 
 ## Task usage examples
-
-* `yarn hardhat test --network DESIRED NETWORK` (update networks hardhat.config.ts according to desired networks)
+* `yarn hardhat deploy-token --network DESIRED_NETWORK` (deploy token)
+* `yarn hardhat verify --network DESIRED_NETWORK CONTRACT_ADDRESS` (verify token)
+* `yarn hardhat test --network DESIRED_NETWORK` (update networks hardhat.config.ts according to desired networks)
