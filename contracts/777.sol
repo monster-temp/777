@@ -6,347 +6,21 @@ Jackpot is a contract that allows players to play a game of 777.
 
 pragma solidity ^0.8.10;
 
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+import "@openzeppelin/contracts/utils/Context.sol";
+import "@openzeppelin/contracts/utils/Address.sol";
+
+import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
+import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
+
+import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router01.sol";
+import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
+
+import "./random.sol";
+
 import "hardhat/console.sol";
 
-interface IERC20 {
-    
-    function totalSupply() external view returns (uint256);
-    function balanceOf(address account) external view returns (uint256);
-    function transfer(address recipient, uint256 amount) external returns (bool);
-    function allowance(address owner, address spender) external view returns (uint256);
-    function approve(address spender, uint256 amount) external returns (bool);
-    function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
-    event Transfer(address indexed from, address indexed to, uint256 value);
-    event Approval(address indexed owner, address indexed spender, uint256 value);
-}
-
-library SafeMath {
-    
-
-    function add(uint256 a, uint256 b) internal pure returns (uint256) {
-        return a + b;
-    }
-
-    function sub(uint256 a, uint256 b) internal pure returns (uint256) {
-        return a - b;
-    }
-
-    function mul(uint256 a, uint256 b) internal pure returns (uint256) {
-        return a * b;
-    }
-    
-    function div(uint256 a, uint256 b) internal pure returns (uint256) {
-        return a / b;
-    }
-
-    function sub(uint256 a, uint256 b, string memory errorMessage) internal pure returns (uint256) {
-        unchecked {
-            require(b <= a, errorMessage);
-            return a - b;
-        }
-    }
-    
-    function div(uint256 a, uint256 b, string memory errorMessage) internal pure returns (uint256) {
-        unchecked {
-            require(b > 0, errorMessage);
-            return a / b;
-        }
-    }
-    
-}
-
-
-abstract contract Context {
-    function _msgSender() internal view virtual returns (address) {
-        return msg.sender;
-    }
-
-    function _msgData() internal view virtual returns (bytes calldata) {
-        this; 
-        return msg.data;
-    }
-}
-
-library Random {
-    /*
-     * @dev startingValue is inclusive, endingValue is inclusive
-     * naive implementation! Do not use in production
-     * ie if 1, 10, rand int can include 1-10
-     */
-    function naiveRandInt(uint256 _startingValue, uint256 _endingValue)
-        internal
-        view
-        returns (uint256)
-    {
-        // hash of the given block when blocknumber is one of the 256 most recent blocks; otherwise returns zero
-        // create random value from block number; use previous block number just to make sure we aren't on 0
-        uint randomInt = uint(blockhash(block.number - 1));
-        // convert this into a number within range
-        uint range = _endingValue - _startingValue + 1; // add 1 to ensure it is inclusive within endingValue
-
-        randomInt = randomInt % range; // modulus ensures value is within range
-        randomInt += _startingValue; // now shift by startingValue to ensure it is >= startingValue
-
-        return randomInt;
-    }
-}
-
-library Address {
-    
-    function isContract(address account) internal view returns (bool) {
-        uint256 size;
-        assembly { size := extcodesize(account) }
-        return size > 0;
-    }
-
-    function sendValue(address payable recipient, uint256 amount) internal {
-        require(address(this).balance >= amount, "Address: insufficient balance");
-        (bool success, ) = recipient.call{ value: amount }("");
-        require(success, "Address: unable to send value, recipient may have reverted");
-    }
-    
-    function functionCall(address target, bytes memory data) internal returns (bytes memory) {
-      return functionCall(target, data, "Address: low-level call failed");
-    }
-    
-    function functionCall(address target, bytes memory data, string memory errorMessage) internal returns (bytes memory) {
-        return functionCallWithValue(target, data, 0, errorMessage);
-    }
-    
-    function functionCallWithValue(address target, bytes memory data, uint256 value) internal returns (bytes memory) {
-        return functionCallWithValue(target, data, value, "Address: low-level call with value failed");
-    }
-    
-    function functionCallWithValue(address target, bytes memory data, uint256 value, string memory errorMessage) internal returns (bytes memory) {
-        require(address(this).balance >= value, "Address: insufficient balance for call");
-        require(isContract(target), "Address: call to non-contract");
-        (bool success, bytes memory returndata) = target.call{ value: value }(data);
-        return _verifyCallResult(success, returndata, errorMessage);
-    }
-    
-    function functionStaticCall(address target, bytes memory data) internal view returns (bytes memory) {
-        return functionStaticCall(target, data, "Address: low-level static call failed");
-    }
-    
-    function functionStaticCall(address target, bytes memory data, string memory errorMessage) internal view returns (bytes memory) {
-        require(isContract(target), "Address: static call to non-contract");
-        (bool success, bytes memory returndata) = target.staticcall(data);
-        return _verifyCallResult(success, returndata, errorMessage);
-    }
-
-
-    function functionDelegateCall(address target, bytes memory data) internal returns (bytes memory) {
-        return functionDelegateCall(target, data, "Address: low-level delegate call failed");
-    }
-    
-    function functionDelegateCall(address target, bytes memory data, string memory errorMessage) internal returns (bytes memory) {
-        require(isContract(target), "Address: delegate call to non-contract");
-        (bool success, bytes memory returndata) = target.delegatecall(data);
-        return _verifyCallResult(success, returndata, errorMessage);
-    }
-
-    function _verifyCallResult(bool success, bytes memory returndata, string memory errorMessage) private pure returns(bytes memory) {
-        if (success) {
-            return returndata;
-        } else {
-            if (returndata.length > 0) {
-                 assembly {
-                    let returndata_size := mload(returndata)
-                    revert(add(32, returndata), returndata_size)
-                }
-            } else {
-                revert(errorMessage);
-            }
-        }
-    }
-}
-
-interface IUniswapV2Factory {
-    event PairCreated(address indexed token0, address indexed token1, address pair, uint);
-    function feeTo() external view returns (address);
-    function feeToSetter() external view returns (address);
-    function getPair(address tokenA, address tokenB) external view returns (address pair);
-    function allPairs(uint) external view returns (address pair);
-    function allPairsLength() external view returns (uint);
-    function createPair(address tokenA, address tokenB) external returns (address pair);
-    function setFeeTo(address) external;
-    function setFeeToSetter(address) external;
-}
-
-interface IUniswapV2Pair {
-    event Approval(address indexed owner, address indexed spender, uint value);
-    event Transfer(address indexed from, address indexed to, uint value);
-    function name() external pure returns (string memory);
-    function symbol() external pure returns (string memory);
-    function decimals() external pure returns (uint8);
-    function totalSupply() external view returns (uint);
-    function balanceOf(address owner) external view returns (uint);
-    function allowance(address owner, address spender) external view returns (uint);
-    function approve(address spender, uint value) external returns (bool);
-    function transfer(address to, uint value) external returns (bool);
-    function transferFrom(address from, address to, uint value) external returns (bool);
-    function DOMAIN_SEPARATOR() external view returns (bytes32);
-    function PERMIT_TYPEHASH() external pure returns (bytes32);
-    function nonces(address owner) external view returns (uint);
-    function permit(address owner, address spender, uint value, uint deadline, uint8 v, bytes32 r, bytes32 s) external;
-    event Burn(address indexed sender, uint amount0, uint amount1, address indexed to);
-    event Swap(
-        address indexed sender,
-        uint amount0In,
-        uint amount1In,
-        uint amount0Out,
-        uint amount1Out,
-        address indexed to
-    );
-    event Sync(uint112 reserve0, uint112 reserve1);
-    function MINIMUM_LIQUIDITY() external pure returns (uint);
-    function factory() external view returns (address);
-    function token0() external view returns (address);
-    function token1() external view returns (address);
-    function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast);
-    function price0CumulativeLast() external view returns (uint);
-    function price1CumulativeLast() external view returns (uint);
-    function kLast() external view returns (uint);
-    function burn(address to) external returns (uint amount0, uint amount1);
-    function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data) external;
-    function skim(address to) external;
-    function sync() external;
-    function initialize(address, address) external;
-}
-
-interface IUniswapV2Router01 {
-    function factory() external pure returns (address);
-    function WETH() external pure returns (address);
-    function addLiquidity(
-        address tokenA,
-        address tokenB,
-        uint amountADesired,
-        uint amountBDesired,
-        uint amountAMin,
-        uint amountBMin,
-        address to,
-        uint deadline
-    ) external returns (uint amountA, uint amountB, uint liquidity);
-    function addLiquidityETH(
-        address token,
-        uint amountTokenDesired,
-        uint amountTokenMin,
-        uint amountETHMin,
-        address to,
-        uint deadline
-    ) external payable returns (uint amountToken, uint amountETH, uint liquidity);
-    function removeLiquidity(
-        address tokenA,
-        address tokenB,
-        uint liquidity,
-        uint amountAMin,
-        uint amountBMin,
-        address to,
-        uint deadline
-    ) external returns (uint amountA, uint amountB);
-    function removeLiquidityETH(
-        address token,
-        uint liquidity,
-        uint amountTokenMin,
-        uint amountETHMin,
-        address to,
-        uint deadline
-    ) external returns (uint amountToken, uint amountETH);
-    function removeLiquidityWithPermit(
-        address tokenA,
-        address tokenB,
-        uint liquidity,
-        uint amountAMin,
-        uint amountBMin,
-        address to,
-        uint deadline,
-        bool approveMax, uint8 v, bytes32 r, bytes32 s
-    ) external returns (uint amountA, uint amountB);
-    function removeLiquidityETHWithPermit(
-        address token,
-        uint liquidity,
-        uint amountTokenMin,
-        uint amountETHMin,
-        address to,
-        uint deadline,
-        bool approveMax, uint8 v, bytes32 r, bytes32 s
-    ) external returns (uint amountToken, uint amountETH);
-    function swapExactTokensForTokens(
-        uint amountIn,
-        uint amountOutMin,
-        address[] calldata path,
-        address to,
-        uint deadline
-    ) external returns (uint[] memory amounts);
-    function swapTokensForExactTokens(
-        uint amountOut,
-        uint amountInMax,
-        address[] calldata path,
-        address to,
-        uint deadline
-    ) external returns (uint[] memory amounts);
-    function swapExactETHForTokens(uint amountOutMin, address[] calldata path, address to, uint deadline)
-        external
-        payable
-        returns (uint[] memory amounts);
-    function swapTokensForExactETH(uint amountOut, uint amountInMax, address[] calldata path, address to, uint deadline)
-        external
-        returns (uint[] memory amounts);
-    function swapExactTokensForETH(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline)
-        external
-        returns (uint[] memory amounts);
-    function swapETHForExactTokens(uint amountOut, address[] calldata path, address to, uint deadline)
-        external
-        payable
-        returns (uint[] memory amounts);
-
-    function quote(uint amountA, uint reserveA, uint reserveB) external pure returns (uint amountB);
-    function getAmountOut(uint amountIn, uint reserveIn, uint reserveOut) external pure returns (uint amountOut);
-    function getAmountIn(uint amountOut, uint reserveIn, uint reserveOut) external pure returns (uint amountIn);
-    function getAmountsOut(uint amountIn, address[] calldata path) external view returns (uint[] memory amounts);
-    function getAmountsIn(uint amountOut, address[] calldata path) external view returns (uint[] memory amounts);
-}
-
-interface IUniswapV2Router02 is IUniswapV2Router01 {
-    function removeLiquidityETHSupportingFeeOnTransferTokens(
-        address token,
-        uint liquidity,
-        uint amountTokenMin,
-        uint amountETHMin,
-        address to,
-        uint deadline
-    ) external returns (uint amountETH);
-    function removeLiquidityETHWithPermitSupportingFeeOnTransferTokens(
-        address token,
-        uint liquidity,
-        uint amountTokenMin,
-        uint amountETHMin,
-        address to,
-        uint deadline,
-        bool approveMax, uint8 v, bytes32 r, bytes32 s
-    ) external returns (uint amountETH);
-
-    function swapExactTokensForTokensSupportingFeeOnTransferTokens(
-        uint amountIn,
-        uint amountOutMin,
-        address[] calldata path,
-        address to,
-        uint deadline
-    ) external;
-    function swapExactETHForTokensSupportingFeeOnTransferTokens(
-        uint amountOutMin,
-        address[] calldata path,
-        address to,
-        uint deadline
-    ) external payable;
-    function swapExactTokensForETHSupportingFeeOnTransferTokens(
-        uint amountIn,
-        uint amountOutMin,
-        address[] calldata path,
-        address to,
-        uint deadline
-    ) external;
-}
 
 contract Jackpot is Context, IERC20 { 
     using SafeMath for uint256;
@@ -542,7 +216,9 @@ contract Jackpot is Context, IERC20 {
         return (_tTotal);
     }
 
-
+    function balanceOfBNB() public view returns (uint256) {
+        return address(this).balance;
+    }
 
     function _approve(address theOwner, address theSpender, uint256 amount) private {
 
@@ -742,23 +418,24 @@ contract Jackpot is Context, IERC20 {
 
     }
 
+
     struct LotteryStruct {
-        uint256 lotteryId;
-        uint256 startTime;
-        uint256 endTime;
-        bool isActive; // minting tickets is allowed. TASK: rename to "isMintingPeriodActive"?
-        bool isCompleted; // winner was found; winnings were deposited.
-        bool isCreated; // is created
+    uint256 lotteryId;
+    uint256 startTime;
+    uint256 endTime;
+    bool isActive; // minting tickets is allowed. TASK: rename to "isMintingPeriodActive"?
+    bool isCompleted; // winner was found; winnings were deposited.
+    bool isCreated; // is created
     }
     struct TicketDistributionStruct {
-        address playerAddress;
-        uint256 startIndex; // inclusive
-        uint256 endIndex; // inclusive
+    address playerAddress;
+    uint256 startIndex; // inclusive
+    uint256 endIndex; // inclusive
     }
     struct WinningTicketStruct {
-        uint256 currentLotteryId;
-        uint256 winningTicketIndex;
-        address addr; // TASK: rename to "winningAddress"?
+    uint256 currentLotteryId;
+    uint256 winningTicketIndex;
+    address addr; // TASK: rename to "winningAddress"?
     }
 
     uint256 public constant NUMBER_OF_HOURS_HOURLY = 1; // 1 day by default; configurable
@@ -793,20 +470,20 @@ contract Jackpot is Context, IERC20 {
 
     // emit when lottery drawing happens; winner found
     event LogWinnerFound(
-        uint256 lotteryId,
-        uint256 winningTicketIndex,
-        address winningAddress
+    uint256 lotteryId,
+    uint256 winningTicketIndex,
+    address winningAddress
     );
     // emit when lottery winnings deposited in pending withdrawals
     event LotteryWinningsDeposited(
-        uint256 lotteryId,
-        address winningAddress,
-        uint256 amountDeposited
+    uint256 lotteryId,
+    address winningAddress,
+    uint256 amountDeposited
     );
     // emit when funds withdrawn by winner
     event LogWinnerFundsWithdrawn(
-        address winnerAddress,
-        uint256 withdrawalAmount
+    address winnerAddress,
+    uint256 withdrawalAmount
     );
     // emit when owner has changed max player param
     event LogMaxPlayersAllowedUpdated(uint256 maxPlayersAllowed);
@@ -825,12 +502,12 @@ contract Jackpot is Context, IERC20 {
     for when new lottery will be saved
     */
     modifier isNewLotteryValid() {
-        // active lottery
-        LotteryStruct memory lottery = lotteries[currentLotteryId];
-        if (lottery.isActive == true) {
-            revert Lottery__ActiveLotteryExists();
-        }
-        _;
+    // active lottery
+    LotteryStruct memory lottery = lotteries[currentLotteryId];
+    if (lottery.isActive == true) {
+        revert Lottery__ActiveLotteryExists();
+    }
+    _;
     }
 
     /* check that minting period is completed, and lottery drawing can begin
@@ -839,132 +516,132 @@ contract Jackpot is Context, IERC20 {
     2. lottery minting period has ended organically, and lottery is still active at that point
     */
     modifier isLotteryMintingCompleted() {
-        if (
-            !((lotteries[currentLotteryId].isActive == true &&
-                lotteries[currentLotteryId].endTime < block.timestamp) ||
-                lotteries[currentLotteryId].isActive == false)
-        ) {
-            revert Lottery__MintingNotCompleted();
-        }
-        _;
+    if (
+        !((lotteries[currentLotteryId].isActive == true &&
+            lotteries[currentLotteryId].endTime < block.timestamp) ||
+            lotteries[currentLotteryId].isActive == false)
+    ) {
+        revert Lottery__MintingNotCompleted();
     }
-/*
-     A function for owner to force update lottery status isActive to false
-     public because it needs to be called internally when a Lottery is cancelled
-     */
+    _;
+    }
+    /*
+    A function for owner to force update lottery status isActive to false
+    public because it needs to be called internally when a Lottery is cancelled
+    */
     function setLotteryInactive() public onlyOwner {
-        lotteries[currentLotteryId].isActive = false;
+    lotteries[currentLotteryId].isActive = false;
     }
 
     /*
-     A function for owner to force update lottery to be cancelled
-     funds should be returned to players too
-     */
+    A function for owner to force update lottery to be cancelled
+    funds should be returned to players too
+    */
     function cancelLottery() external onlyOwner {
-        setLotteryInactive();
-        _resetLottery();
-        // TASK: implement refund funds to users
+    setLotteryInactive();
+    _resetLottery();
+    // TASK: implement refund funds to users
     }
-      /*
-     A function to initialize a lottery
-     probably should also be onlyOwner
-     uint256 startTime_: start of minting period, unixtime
-     uint256 numHours: in hours, how long mint period will last
-     */
+    /*
+    A function to initialize a lottery
+    probably should also be onlyOwner
+    uint256 startTime_: start of minting period, unixtime
+    uint256 numHours: in hours, how long mint period will last
+    */
     function initLottery(uint256 startTime_, uint256 numHours_)
-        public
-        onlyOwner
-        isNewLotteryValid
+    public
+    onlyOwner
+    isNewLotteryValid
     {
-        // basically default value
-        // if set to 0, default to explicit default number of days
-        if (numHours_ == 0) {
-            numHours_ = NUMBER_OF_HOURS_HOURLY;
-        }
-        uint256 endTime = startTime_ + (numHours_ * 1 hours);
-        lotteries[currentLotteryId] = LotteryStruct({
-            lotteryId: currentLotteryId,
-            startTime: startTime_,
-            endTime: endTime,
-            isActive: true,
-            isCompleted: false,
-            isCreated: true
-        });
-        numLotteries = numLotteries + 1;
-        emit LogNewLottery(msg.sender, startTime_, endTime);
+    // basically default value
+    // if set to 0, default to explicit default number of days
+    if (numHours_ == 0) {
+        numHours_ = NUMBER_OF_HOURS_HOURLY;
+    }
+    uint256 endTime = startTime_ + (numHours_ * 1 hours);
+    lotteries[currentLotteryId] = LotteryStruct({
+        lotteryId: currentLotteryId,
+        startTime: startTime_,
+        endTime: endTime,
+        isActive: true,
+        isCompleted: false,
+        isCreated: true
+    });
+    numLotteries = numLotteries + 1;
+    emit LogNewLottery(msg.sender, startTime_, endTime);
     }
 
-     /*
-     a function for players to mint lottery tix
-     */
+    /*
+    a function for players to mint lottery tix
+    */
     function mintLotteryTickets(uint256 numberOfTickets, address player) private {
-        uint256 _numTicketsToMint = numberOfTickets;
-        require(_numTicketsToMint >= 1); 
-        // if player is "new" for current lottery, update the player lists
+    uint256 _numTicketsToMint = numberOfTickets;
+    require(_numTicketsToMint >= 1); 
+    // if player is "new" for current lottery, update the player lists
 
-        uint _numActivePlayers = numActivePlayers;
+    uint _numActivePlayers = numActivePlayers;
 
-        if (players[player] == false) {
-            if (listOfPlayers.length > _numActivePlayers) {
-                listOfPlayers[_numActivePlayers] = player; 
-            } else {
-                listOfPlayers.push(player); // otherwise append to array
-            }
-            players[player] = true;
-            numActivePlayers = _numActivePlayers + 1;
+    if (players[player] == false) {
+        if (listOfPlayers.length > _numActivePlayers) {
+            listOfPlayers[_numActivePlayers] = player; 
+        } else {
+            listOfPlayers.push(player); // otherwise append to array
         }
-        tickets[player] = tickets[player] + _numTicketsToMint; // account for if user has already minted tix previously for this current lottery
-        numTotalTickets = numTotalTickets + _numTicketsToMint; // update the total # of tickets minted
-        emit LogTicketsMinted(player, _numTicketsToMint);
+        players[player] = true;
+        numActivePlayers = _numActivePlayers + 1;
+    }
+    tickets[player] = tickets[player] + _numTicketsToMint; // account for if user has already minted tix previously for this current lottery
+    numTotalTickets = numTotalTickets + _numTicketsToMint; // update the total # of tickets minted
+    emit LogTicketsMinted(player, _numTicketsToMint);
     }
 
     /*
-     a function for players to unmint lottery tix
-     */
+    a function for players to unmint lottery tix
+    */
     function unmintLotteryTickets(uint256 numberOfTickets, address player) private {
-        uint256 _numTicketsToMint = numberOfTickets;
-        require(_numTicketsToMint >= 1); 
-        require(tickets[player] >= _numTicketsToMint); // double check that user has enough tix to unmint
-        // if player is "new" for current lottery, update the player lists
+    uint256 _numTicketsToMint = numberOfTickets;
+    require(_numTicketsToMint >= 1); 
+    require(tickets[player] >= _numTicketsToMint); // double check that user has enough tix to unmint
+    // if player is "new" for current lottery, update the player lists
 
-      //  uint _numActivePlayers = numActivePlayers;
+    //  uint _numActivePlayers = numActivePlayers;
 
 
-        tickets[player] = tickets[player] - _numTicketsToMint; // account for if user has already minted tix previously for this current lottery
-        numTotalTickets = numTotalTickets - _numTicketsToMint; // update the total # of tickets minted
-        emit LogTicketsUnminted(player, _numTicketsToMint);
+    tickets[player] = tickets[player] - _numTicketsToMint; // account for if user has already minted tix previously for this current lottery
+    numTotalTickets = numTotalTickets - _numTicketsToMint; // update the total # of tickets minted
+    emit LogTicketsUnminted(player, _numTicketsToMint);
     }
 
- /*
-     a function for owner to trigger lottery drawing
-     */
+    /*
+    a function for owner to trigger lottery drawing
+    */
     function triggerLotteryDrawing()
-        public
-        onlyOwner
-        isLotteryMintingCompleted
+    public
+    onlyOwner
+    isLotteryMintingCompleted
     {
-        // console.log("triggerLotteryDrawing");
-        prizes[currentLotteryId] = prizeAmount; // keep track of prize amts for each of the previous lotteries
+    // console.log("triggerLotteryDrawing");
+    prizes[currentLotteryId] = prizeAmount; // keep track of prize amts for each of the previous lotteries
 
-        _playerTicketDistribution(); // create the distribution to get ticket indexes for each user
-        // can't be done a priori bc of potential multiple mints per user
-        uint256 winningTicketIndex = _performRandomizedDrawing();
-        // initialize what we can first
-        winningTicket.currentLotteryId = currentLotteryId;
-        winningTicket.winningTicketIndex = winningTicketIndex;
-        findWinningAddress(winningTicketIndex); // via binary search
-        // TODO: send BNB to winner, emit an event
+    _playerTicketDistribution(); // create the distribution to get ticket indexes for each user
+    // can't be done a priori bc of potential multiple mints per user
+    uint256 winningTicketIndex = _performRandomizedDrawing();
+    // initialize what we can first
+    winningTicket.currentLotteryId = currentLotteryId;
+    winningTicket.winningTicketIndex = winningTicketIndex;
+    findWinningAddress(winningTicketIndex); // via binary search
+    // TODO: send BNB to winner, emit an event
 
-        emit LogWinnerFound(
-            currentLotteryId,
-            winningTicket.winningTicketIndex,
-            winningTicket.addr
-        );
+    emit LogWinnerFound(
+        currentLotteryId,
+        winningTicket.winningTicketIndex,
+        winningTicket.addr
+    );
     }
     /*
-     function to deposit winnings for user withdrawal pattern
-     then reset lottery params for new one to be created
-     */
+    function to deposit winnings for user withdrawal pattern
+    then reset lottery params for new one to be created
+    */
     // function triggerDepositWinnings() public {
     //     // console.log("triggerDepositWinnings");
     //     pendingWithdrawals[currentLotteryId][winningTicket.addr] = prizeAmount;
@@ -980,153 +657,152 @@ contract Jackpot is Context, IERC20 {
     //     _resetLottery();
     // }
 
-  /*
-     getter function for ticketDistribution bc its a struct
-     */
+    /*
+    getter function for ticketDistribution bc its a struct
+    */
     function getTicketDistribution(uint256 playerIndex_)
-        public
-        view
-        returns (
-            address playerAddress,
-            uint256 startIndex, // inclusive
-            uint256 endIndex // inclusive
-        )
+    public
+    view
+    returns (
+        address playerAddress,
+        uint256 startIndex, // inclusive
+        uint256 endIndex // inclusive
+    )
     {
-        return (
-            ticketDistribution[playerIndex_].playerAddress,
-            ticketDistribution[playerIndex_].startIndex,
-            ticketDistribution[playerIndex_].endIndex
-        );
+    return (
+        ticketDistribution[playerIndex_].playerAddress,
+        ticketDistribution[playerIndex_].startIndex,
+        ticketDistribution[playerIndex_].endIndex
+    );
     }
     /*
-     function to handle creating the ticket distribution
-     if 1) player1 buys 10 tix, then 2) player2 buys 5 tix, and then 3) player1 buys 5 more
-     player1's ticket indices will be 0-14; player2's from 15-19
-     this is why ticketDistribution cannot be determined until minting period is closed
-     */
+    function to handle creating the ticket distribution
+    if 1) player1 buys 10 tix, then 2) player2 buys 5 tix, and then 3) player1 buys 5 more
+    player1's ticket indices will be 0-14; player2's from 15-19
+    this is why ticketDistribution cannot be determined until minting period is closed
+    */
     function _playerTicketDistribution() private {
 
-        uint _ticketDistributionLength = ticketDistribution.length; // so state var doesn't need to be invoked each iteration of loop
+    uint _ticketDistributionLength = ticketDistribution.length; // so state var doesn't need to be invoked each iteration of loop
 
-        uint256 _ticketIndex = 0; // counter within loop
-        for (uint256 i = _ticketIndex; i < numActivePlayers; i++) {
-            address _playerAddress = listOfPlayers[i];
-            uint256 _numTickets = tickets[_playerAddress];
+    uint256 _ticketIndex = 0; // counter within loop
+    for (uint256 i = _ticketIndex; i < numActivePlayers; i++) {
+        address _playerAddress = listOfPlayers[i];
+        uint256 _numTickets = tickets[_playerAddress];
 
-            TicketDistributionStruct memory newDistribution = TicketDistributionStruct({
-                playerAddress: _playerAddress,
-                startIndex: _ticketIndex,
-                endIndex: _ticketIndex + _numTickets - 1 // sub 1 to account for array indices starting from 0
-            });
-            if (_ticketDistributionLength > i) {
-                ticketDistribution[i] = newDistribution;
-            } else {
-                ticketDistribution.push(newDistribution);
-            }
-
-            tickets[_playerAddress] = 0; // reset player's tickets to 0 after they've been counted
-            _ticketIndex = _ticketIndex + _numTickets;
-        }
-    }
-    /*
-     function to generate random winning ticket index. Still need to find corresponding user afterwards.
-     */
-    function _performRandomizedDrawing() private view returns (uint256) {
-        // console.log("_performRandomizedDrawing");
-        /* TASK: implement random drawing from 0 to numTotalTickets-1
-    use chainlink https://docs.chain.link/docs/get-a-random-number/ to get random values
-     */
-        return Random.naiveRandInt(0, numTotalTickets - 1);
-    }
-
-    /*
-     function to find winning player address corresponding to winning ticket index
-     calls binary search
-     uint256 winningTicketIndex_: ticket index selected as winner.
-     Search for this within the ticket distribution to find corresponding Player
-     */
-    function findWinningAddress(uint256 winningTicketIndex_) public {
-        // console.log("findWinningAddress");
-        uint _numActivePlayers = numActivePlayers;
-        if (_numActivePlayers == 1) {
-            winningTicket.addr = ticketDistribution[0].playerAddress;
+        TicketDistributionStruct memory newDistribution = TicketDistributionStruct({
+            playerAddress: _playerAddress,
+            startIndex: _ticketIndex,
+            endIndex: _ticketIndex + _numTickets - 1 // sub 1 to account for array indices starting from 0
+        });
+        if (_ticketDistributionLength > i) {
+            ticketDistribution[i] = newDistribution;
         } else {
-            // do binary search on ticketDistribution array to find winner
-            uint256 _winningPlayerIndex = _binarySearch(
-                0,
-                _numActivePlayers - 1,
-                winningTicketIndex_
-            );
-            if (_winningPlayerIndex >= _numActivePlayers) {
-                revert Lottery__InvalidWinningIndex();
-            }
-            winningTicket.addr = ticketDistribution[_winningPlayerIndex]
-                .playerAddress;
+            ticketDistribution.push(newDistribution);
         }
+
+        tickets[_playerAddress] = 0; // reset player's tickets to 0 after they've been counted
+        _ticketIndex = _ticketIndex + _numTickets;
+    }
+    }
+    /*
+    function to generate random winning ticket index. Still need to find corresponding user afterwards.
+    */
+    function _performRandomizedDrawing() private view returns (uint256) {
+    // console.log("_performRandomizedDrawing");
+    /* TASK: implement random drawing from 0 to numTotalTickets-1
+    use chainlink https://docs.chain.link/docs/get-a-random-number/ to get random values
+    */
+    return Random.naiveRandInt(0, numTotalTickets - 1);
     }
 
     /*
-     function implementing binary search on ticket distribution var
-     uint256 leftIndex_ initially 0
-     uint256 rightIndex_ initially max ind, ie array.length - 1
-     uint256 ticketIndexToFind_ to search for
-     */
+    function to find winning player address corresponding to winning ticket index
+    calls binary search
+    uint256 winningTicketIndex_: ticket index selected as winner.
+    Search for this within the ticket distribution to find corresponding Player
+    */
+    function findWinningAddress(uint256 winningTicketIndex_) public {
+    // console.log("findWinningAddress");
+    uint _numActivePlayers = numActivePlayers;
+    if (_numActivePlayers == 1) {
+        winningTicket.addr = ticketDistribution[0].playerAddress;
+    } else {
+        // do binary search on ticketDistribution array to find winner
+        uint256 _winningPlayerIndex = _binarySearch(
+            0,
+            _numActivePlayers - 1,
+            winningTicketIndex_
+        );
+        if (_winningPlayerIndex >= _numActivePlayers) {
+            revert Lottery__InvalidWinningIndex();
+        }
+        winningTicket.addr = ticketDistribution[_winningPlayerIndex]
+            .playerAddress;
+    }
+    }
+
+    /*
+    function implementing binary search on ticket distribution var
+    uint256 leftIndex_ initially 0
+    uint256 rightIndex_ initially max ind, ie array.length - 1
+    uint256 ticketIndexToFind_ to search for
+    */
     function _binarySearch(
-        uint256 leftIndex_,
-        uint256 rightIndex_,
-        uint256 ticketIndexToFind_
+    uint256 leftIndex_,
+    uint256 rightIndex_,
+    uint256 ticketIndexToFind_
     ) private returns (uint256) {
-        uint256 _searchIndex = (rightIndex_ - leftIndex_) / (2) + (leftIndex_);
-        uint _loopCount = loopCount;
-        // counter
-        loopCount = _loopCount + 1;
-        if (_loopCount + 1 > maxLoops) {
-            // emergency stop in case infinite loop due to unforeseen bug
-            return numActivePlayers;
-        }
-
-        if (
-            ticketDistribution[_searchIndex].startIndex <= ticketIndexToFind_ &&
-            ticketDistribution[_searchIndex].endIndex >= ticketIndexToFind_
-        ) {
-            return _searchIndex;
-        } else if (
-            ticketDistribution[_searchIndex].startIndex > ticketIndexToFind_
-        ) {
-            // go to left subarray
-            rightIndex_ = _searchIndex - (leftIndex_);
-
-            return _binarySearch(leftIndex_, rightIndex_, ticketIndexToFind_);
-        } else if (
-            ticketDistribution[_searchIndex].endIndex < ticketIndexToFind_
-        ) {
-            // go to right subarray
-            leftIndex_ = _searchIndex + (leftIndex_) + 1;
-            return _binarySearch(leftIndex_, rightIndex_, ticketIndexToFind_);
-        }
-
-        // if nothing found (bug), return an impossible player index
-        // this index is outside expected bound, bc indexes run from 0 to numActivePlayers-1
+    uint256 _searchIndex = (rightIndex_ - leftIndex_) / (2) + (leftIndex_);
+    uint _loopCount = loopCount;
+    // counter
+    loopCount = _loopCount + 1;
+    if (_loopCount + 1 > maxLoops) {
+        // emergency stop in case infinite loop due to unforeseen bug
         return numActivePlayers;
+    }
+
+    if (
+        ticketDistribution[_searchIndex].startIndex <= ticketIndexToFind_ &&
+        ticketDistribution[_searchIndex].endIndex >= ticketIndexToFind_
+    ) {
+        return _searchIndex;
+    } else if (
+        ticketDistribution[_searchIndex].startIndex > ticketIndexToFind_
+    ) {
+        // go to left subarray
+        rightIndex_ = _searchIndex - (leftIndex_);
+
+        return _binarySearch(leftIndex_, rightIndex_, ticketIndexToFind_);
+    } else if (
+        ticketDistribution[_searchIndex].endIndex < ticketIndexToFind_
+    ) {
+        // go to right subarray
+        leftIndex_ = _searchIndex + (leftIndex_) + 1;
+        return _binarySearch(leftIndex_, rightIndex_, ticketIndexToFind_);
+    }
+
+    // if nothing found (bug), return an impossible player index
+    // this index is outside expected bound, bc indexes run from 0 to numActivePlayers-1
+    return numActivePlayers;
     }
 
     /*
     function to reset lottery by setting state vars to defaults
-     */
+    */
     function _resetLottery() public {
-        // console.log("_resetLottery");
+    // console.log("_resetLottery");
 
-        numTotalTickets = 0;
-        numActivePlayers = 0;
-        lotteries[currentLotteryId].isActive = false;
-        lotteries[currentLotteryId].isCompleted = true;
-        winningTicket = WinningTicketStruct({
-            currentLotteryId: 0,
-            winningTicketIndex: 0,
-            addr: address(0)
-        });
+    numTotalTickets = 0;
+    numActivePlayers = 0;
+    lotteries[currentLotteryId].isActive = false;
+    lotteries[currentLotteryId].isCompleted = true;
+    winningTicket = WinningTicketStruct({
+        currentLotteryId: 0,
+        winningTicketIndex: 0,
+        addr: address(0)
+    });
 
-        currentLotteryId = currentLotteryId + (1); // increment id counter
-    }
-
+    currentLotteryId = currentLotteryId + (1); // increment id counter
+        }
 }
