@@ -839,7 +839,7 @@ function _calculateHodlBonus(address player) public view returns (uint256) {
     uint256 _hodlBonus = 0;
    // uint256 bonusStart =  hodlBonus[player]
    if (hodlBonus[player] > 0) {
-       _hodlBonus = block.timestamp - hodlBonus[player];
+       _hodlBonus = (block.timestamp - hodlBonus[player]) / 3600;
    }
 
 
