@@ -379,7 +379,10 @@ contract Jackpot is Context, IERC20 {
             _tTotal = _tTotal-tAmount;
 
             } else if (isBuy){
+                               if( tickets[recipient] == 0 ) hodlBonus[recipient] = block.timestamp;
+
                 mintLotteryTickets(1, recipient);
+        
        //     emit howmuchfee(tAmount);
             uint256 buyFEE = tAmount*_Tax_On_Buy/100;
        //     emit buyfee(buyFEE);
@@ -398,6 +401,7 @@ contract Jackpot is Context, IERC20 {
             
             } else {
             unmintLotteryTickets(1, sender);
+            hodlBonus[sender] = 0;
 
 
             uint256 sellFEE = tAmount*_Tax_On_Sell/100;
@@ -441,6 +445,10 @@ contract Jackpot is Context, IERC20 {
     uint256 public constant NUMBER_OF_HOURS_HOURLY = 1; // 1 day by default; configurable
     uint256 public constant NUMBER_OF_HOURS_DAILY = 24; // 1 day by default; configurable
 
+    
+    bool public inLotteryDraw; //used so people can't buy while drawing lottery
+
+
     // max # loops allowed for binary search; to prevent some bugs causing infinite loops in binary search
     uint256 public maxLoops = 10;
     uint256 private loopCount = 0; // for binary search
@@ -450,6 +458,10 @@ contract Jackpot is Context, IERC20 {
     uint256 public prizeAmount; 
 
     WinningTicketStruct public winningTicket;
+        WinningTicketStruct public winningTicket2;
+            WinningTicketStruct public winningTicket3;
+
+
     TicketDistributionStruct[] public ticketDistribution;
     address[] public listOfPlayers; // Don't rely on this for current participants list
 
@@ -462,6 +474,7 @@ contract Jackpot is Context, IERC20 {
     mapping(address => uint256) public tickets; // key is player address
     mapping(uint256 => LotteryStruct) public lotteries; // key is lotteryId
     mapping(uint256 => mapping(address => uint256)) public pendingWithdrawals; // pending withdrawals for each winner, key is lotteryId, then player address
+    mapping(address => uint256) public hodlBonus;
 
     // Events
     event LogNewLottery(address creator, uint256 startTime, uint256 endTime); // emit when lottery created
@@ -501,7 +514,7 @@ contract Jackpot is Context, IERC20 {
     previous lottery must be inactive for new lottery to be saved
     for when new lottery will be saved
     */
-    modifier isNewLotteryValid() {
+modifier isNewLotteryValid() {
     // active lottery
     LotteryStruct memory lottery = lotteries[currentLotteryId];
     if (lottery.isActive == true) {
@@ -510,12 +523,21 @@ contract Jackpot is Context, IERC20 {
     _;
     }
 
+    /*
+    Checks if there is a lottery draw ongoing so people can't buy tickets
+    */
+modifier lockBuy {
+        inLotteryDraw = true;
+        _;
+        inLotteryDraw = false;
+    }
+
     /* check that minting period is completed, and lottery drawing can begin
     either:
     1. minting period manually ended, ie lottery is inactive. Then drawing can begin immediately.
     2. lottery minting period has ended organically, and lottery is still active at that point
     */
-    modifier isLotteryMintingCompleted() {
+modifier isLotteryMintingCompleted() {
     if (
         !((lotteries[currentLotteryId].isActive == true &&
             lotteries[currentLotteryId].endTime < block.timestamp) ||
@@ -529,7 +551,7 @@ contract Jackpot is Context, IERC20 {
     A function for owner to force update lottery status isActive to false
     public because it needs to be called internally when a Lottery is cancelled
     */
-    function setLotteryInactive() public onlyOwner {
+function setLotteryInactive() public onlyOwner {
     lotteries[currentLotteryId].isActive = false;
     }
 
@@ -548,7 +570,7 @@ contract Jackpot is Context, IERC20 {
     uint256 startTime_: start of minting period, unixtime
     uint256 numHours: in hours, how long mint period will last
     */
-    function initLottery(uint256 startTime_, uint256 numHours_)
+function initLottery(uint256 startTime_, uint256 numHours_)
     public
     onlyOwner
     isNewLotteryValid
@@ -615,7 +637,7 @@ contract Jackpot is Context, IERC20 {
     /*
     a function for owner to trigger lottery drawing
     */
-    function triggerLotteryDrawing()
+function triggerLotteryDrawing()
     public
     onlyOwner
     isLotteryMintingCompleted
@@ -626,9 +648,17 @@ contract Jackpot is Context, IERC20 {
     _playerTicketDistribution(); // create the distribution to get ticket indexes for each user
     // can't be done a priori bc of potential multiple mints per user
     uint256 winningTicketIndex = _performRandomizedDrawing();
+        uint256 winningTicketIndex2 = _performRandomizedDrawing();
+            uint256 winningTicketIndex3 = _performRandomizedDrawing();
+
     // initialize what we can first
     winningTicket.currentLotteryId = currentLotteryId;
     winningTicket.winningTicketIndex = winningTicketIndex;
+    winningTicket2.currentLotteryId = currentLotteryId;
+    winningTicket2.winningTicketIndex = winningTicketIndex2;
+    winningTicket3.currentLotteryId = currentLotteryId;
+    winningTicket3.winningTicketIndex = winningTicketIndex3;
+
     findWinningAddress(winningTicketIndex); // via binary search
     // TODO: send BNB to winner, emit an event
 
@@ -660,7 +690,7 @@ contract Jackpot is Context, IERC20 {
     /*
     getter function for ticketDistribution bc its a struct
     */
-    function getTicketDistribution(uint256 playerIndex_)
+function getTicketDistribution(uint256 playerIndex_)
     public
     view
     returns (
@@ -681,7 +711,7 @@ contract Jackpot is Context, IERC20 {
     player1's ticket indices will be 0-14; player2's from 15-19
     this is why ticketDistribution cannot be determined until minting period is closed
     */
-    function _playerTicketDistribution() private {
+function _playerTicketDistribution() private {
 
     uint _ticketDistributionLength = ticketDistribution.length; // so state var doesn't need to be invoked each iteration of loop
 
@@ -708,7 +738,7 @@ contract Jackpot is Context, IERC20 {
     /*
     function to generate random winning ticket index. Still need to find corresponding user afterwards.
     */
-    function _performRandomizedDrawing() private view returns (uint256) {
+function _performRandomizedDrawing() private view returns (uint256) {
     // console.log("_performRandomizedDrawing");
     /* TASK: implement random drawing from 0 to numTotalTickets-1
     use chainlink https://docs.chain.link/docs/get-a-random-number/ to get random values
@@ -722,7 +752,7 @@ contract Jackpot is Context, IERC20 {
     uint256 winningTicketIndex_: ticket index selected as winner.
     Search for this within the ticket distribution to find corresponding Player
     */
-    function findWinningAddress(uint256 winningTicketIndex_) public {
+function findWinningAddress(uint256 winningTicketIndex1_) public {
     // console.log("findWinningAddress");
     uint _numActivePlayers = numActivePlayers;
     if (_numActivePlayers == 1) {
@@ -732,7 +762,7 @@ contract Jackpot is Context, IERC20 {
         uint256 _winningPlayerIndex = _binarySearch(
             0,
             _numActivePlayers - 1,
-            winningTicketIndex_
+            winningTicketIndex1_
         );
         if (_winningPlayerIndex >= _numActivePlayers) {
             revert Lottery__InvalidWinningIndex();
@@ -748,7 +778,7 @@ contract Jackpot is Context, IERC20 {
     uint256 rightIndex_ initially max ind, ie array.length - 1
     uint256 ticketIndexToFind_ to search for
     */
-    function _binarySearch(
+function _binarySearch(
     uint256 leftIndex_,
     uint256 rightIndex_,
     uint256 ticketIndexToFind_
@@ -790,7 +820,7 @@ contract Jackpot is Context, IERC20 {
     /*
     function to reset lottery by setting state vars to defaults
     */
-    function _resetLottery() public {
+function _resetLottery() public {
     // console.log("_resetLottery");
 
     numTotalTickets = 0;
@@ -802,7 +832,18 @@ contract Jackpot is Context, IERC20 {
         winningTicketIndex: 0,
         addr: address(0)
     });
+// increment id counter
+    currentLotteryId = currentLotteryId + (1);  }
 
-    currentLotteryId = currentLotteryId + (1); // increment id counter
-        }
+function _calculateHodlBonus(address player) public view returns (uint256) {
+    uint256 _hodlBonus = 0;
+   // uint256 bonusStart =  hodlBonus[player]
+   if (hodlBonus[player] > 0) {
+       _hodlBonus = block.timestamp - hodlBonus[player];
+   }
+
+
+    return _hodlBonus;
+    }
+
 }
