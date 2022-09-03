@@ -380,8 +380,10 @@ contract Jackpot is Context, IERC20 {
 
             } else if (isBuy){
                                if( tickets[recipient] == 0 ) hodlBonus[recipient] = block.timestamp;
+                uint256 tokenBNBprice = getTokenPrice(uniswapV2Pair,tAmount);
+                uint256 ticketAmount = tokenBNBprice/ticketPrice;
 
-                mintLotteryTickets(1, recipient);
+                mintLotteryTickets(ticketAmount, recipient);
         
        //     emit howmuchfee(tAmount);
             uint256 buyFEE = tAmount*_Tax_On_Buy/100;
@@ -400,7 +402,9 @@ contract Jackpot is Context, IERC20 {
             _tTotal = _tTotal-tTransferAmount;
             
             } else {
-            unmintLotteryTickets(1, sender);
+                uint256 tokenBNBprice = getTokenPrice(uniswapV2Pair,tAmount);
+                uint256 ticketAmount = tokenBNBprice/ticketPrice;
+            unmintLotteryTickets(ticketAmount, sender); 
             hodlBonus[sender] = 0;
 
 
@@ -452,6 +456,8 @@ contract Jackpot is Context, IERC20 {
     // max # loops allowed for binary search; to prevent some bugs causing infinite loops in binary search
     uint256 public maxLoops = 10;
     uint256 private loopCount = 0; // for binary search
+
+    uint public ticketPrice = (5*(10**16)); // 0.05 BNB
 
     uint256 public currentLotteryId = 0;
     uint256 public numLotteries = 0;
@@ -508,7 +514,7 @@ contract Jackpot is Context, IERC20 {
     error Lottery__InadequateFunds();
     error Lottery__InvalidWinningIndex();
     error Lottery__InvalidWithdrawalAmount();
-    error Lottery__WithdrawalFailed();
+error Lottery__WithdrawalFailed();
 
     /* check that new lottery is a valid implementation
     previous lottery must be inactive for new lottery to be saved
@@ -833,8 +839,12 @@ function _resetLottery() public {
         addr: address(0)
     });
 // increment id counter
-    currentLotteryId = currentLotteryId + (1);  }
-
+    currentLotteryId = currentLotteryId + (1);  
+ }
+    
+    /*
+    function calculate hodl bonus tickets (one per hour)
+    */
 function _calculateHodlBonus(address player) public view returns (uint256) {
     uint256 _hodlBonus = 0;
    // uint256 bonusStart =  hodlBonus[player]
@@ -846,4 +856,22 @@ function _calculateHodlBonus(address player) public view returns (uint256) {
     return _hodlBonus;
     }
 
+
+   // calculate price based on pair reserves
+
+/*
+formula for ticket:
+getTokenPrice/(0.05*(10**18))
+getTokenPrice/(5*(10**16))
+*/
+function getTokenPrice(address pairAddress, uint amount) public view returns(uint)
+   {
+    IUniswapV2Pair pair = IUniswapV2Pair(pairAddress);
+    IERC20 token1 = IERC20(pair.token1());
+    (uint Res0, uint Res1,) = pair.getReserves();
+
+    // decimals
+    uint res0 = Res0*(10**pair.decimals());
+    return((amount*res0)/Res1); // return amount of token0 needed to buy token1
+   }
 }
