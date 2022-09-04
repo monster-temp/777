@@ -8,6 +8,7 @@ import "hardhat-gas-reporter";
 import "solidity-coverage";
 import { ethers } from "hardhat";
 import * as _ from 'lodash';
+import "hardhat-contract-sizer";
 
 
 
