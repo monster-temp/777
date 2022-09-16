@@ -43,6 +43,7 @@ if(accounts.length !== _.uniq(accounts).length) {
 
 import './tasks/deploy-token';
 import './tasks/deploy-proxy';
+import './tasks/test';
 
 
 

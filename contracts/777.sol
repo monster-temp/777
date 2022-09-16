@@ -19,8 +19,6 @@ import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
 import "./random.sol";
 
-import "hardhat/console.sol";
-
 contract Jackpot is Context, IERC20 {
   using SafeMath for uint256;
   using Address for address;
@@ -64,7 +62,9 @@ contract Jackpot is Context, IERC20 {
     payable(0xF3BeAaD8F3CFDCE8b0f2a0f0F677a58058CCd877);
   address payable public constant Wallet_Burn =
     payable(0x000000000000000000000000000000000000dEaD);
-
+  address public WBNB = 0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd;
+  //0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c mainnent bnb
+  //0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd testnet
   uint256 private constant MAX = ~uint256(0);
   uint8 private constant _decimals = 18;
   uint256 private _tTotal = 777777777 * 10**_decimals;
@@ -422,7 +422,7 @@ contract Jackpot is Context, IERC20 {
       removeRandom
     );
   }
-
+event isfee (bool isFee);
   function _tokenTransfer(
     address sender,
     address recipient,
@@ -431,7 +431,7 @@ contract Jackpot is Context, IERC20 {
     bool isBuy
   ) private {
     //   emit isbuy(isBuy);
-
+    emit isfee(takeFee);
     if (!takeFee) {
       _tOwned[sender] = _tOwned[sender] - tAmount;
       _tOwned[recipient] = _tOwned[recipient] + tAmount;
@@ -439,9 +439,10 @@ contract Jackpot is Context, IERC20 {
 
       if (recipient == Wallet_Burn) _tTotal = _tTotal - tAmount;
     } else if (isBuy) {
-      uint256 tokenBNBprice = getTokenPrice(uniswapV2Pair, tAmount);
+      uint256 tokenBNBprice = getAmountOutMin(address(this), WBNB, tAmount);
       bnbAmount[recipient] = bnbAmount[recipient] + tokenBNBprice;
       uint256 ticketAmount = bnbAmount[recipient] / ticketPrice;
+
       //  if(tickets[recipient] )
       if (ticketAmount > 0) {
         if (hodlBonus[recipient] == 0) {
@@ -450,13 +451,15 @@ contract Jackpot is Context, IERC20 {
             hodlBonusDaily[recipient] = block.timestamp;
           }
         }
-        mintLotteryTickets(ticketAmount, recipient);
+        if (lotteriesDaily[currentLotteryIdDaily].isActive == true){
+        buyLotteryTickets(ticketAmount, recipient);
         if (ticketsDaily[recipient] == 0) {
-          mintLotteryTicketsDaily(1, recipient);
+          buyLotteryTicketsDaily(1, recipient);
         }
         bnbAmount[recipient] =
           bnbAmount[recipient] -
           (ticketAmount * ticketPrice);
+          }
       }
 
       //     emit howmuchfee(tAmount);
@@ -474,19 +477,24 @@ contract Jackpot is Context, IERC20 {
 
       if (recipient == Wallet_Burn) _tTotal = _tTotal - tTransferAmount;
     } else {
-      uint256 tokenBNBprice = getTokenPrice(uniswapV2Pair, tAmount);
+      uint256 tokenBNBprice = getAmountOutMin(address(this), WBNB, tAmount);
       bnbAmountSell[sender] = bnbAmountSell[sender] + tokenBNBprice;
 
       uint256 ticketAmount = bnbAmountSell[sender] / ticketPrice;
+       if (lotteriesDaily[currentLotteryIdDaily].isActive == true){
       if (ticketAmount > 0) {
-        unmintLotteryTickets(ticketAmount, sender);
-        if (ticketsDaily[recipient] == 1) {
-          unmintLotteryTicketsDaily(1, sender);
+        if (ticketAmount > tickets[sender]) {
+          sellLotteryTickets(tickets[sender], sender);
+        } else {
+          sellLotteryTickets(ticketAmount, sender);
+        }
+        if (ticketsDaily[sender] == 1) {
+          sellLotteryTicketsDaily(1, sender);
         }
         bnbAmountSell[sender] =
           bnbAmountSell[sender] -
           (ticketAmount * ticketPrice);
-      }
+      }}
       hodlBonus[sender] = 0;
       hodlBonusDaily[sender] = 0;
 
@@ -502,11 +510,30 @@ contract Jackpot is Context, IERC20 {
     }
   }
 
+  /*
+Calculate 1 token price via router getAmountsOut method
+*/
+  function getAmountOutMin(
+    address _tokenIn,
+    address _tokenOut,
+    uint256 _amount
+  ) public view returns (uint256) {
+    address[] memory path;
+    path = new address[](2);
+    path[0] = _tokenIn;
+    path[1] = _tokenOut;
+    uint256[] memory amountOutMins = uniswapV2Router.getAmountsOut(
+      _amount,
+      path
+    );
+    return amountOutMins[path.length - 1];
+  }
+
   struct LotteryStruct {
     uint256 lotteryId;
     uint256 startTime;
     uint256 endTime;
-    bool isActive; // minting tickets is allowed. TASK: rename to "isMintingPeriodActive"?
+    bool isActive;
     bool isCompleted; // winner was found; winnings were deposited.
     bool isCreated; // is created
   }
@@ -530,34 +557,20 @@ contract Jackpot is Context, IERC20 {
   uint256 public maxLoops = 10;
   uint256 private loopCount = 0; // for binary search
 
-  uint256 public ticketPrice = (5 * (10**16)); // 0.05 BNB
+  uint256 public ticketPrice = (1 * (10**16)); // 0.05 BNB
 
   uint256 public currentLotteryId = 0;
   uint256 public numLotteries = 0;
   uint256 public prizeAmount;
 
-  uint256 public currentLotteryIdDaily = 0;
-  uint256 public numLotteriesDaily = 0;
-  uint256 public prizeAmountDaily;
-
   WinningTicketStruct public winningTicket;
-  WinningTicketStruct public winningTicket2;
-  WinningTicketStruct public winningTicket3;
-
-  WinningTicketStruct public winningTicketDaily;
 
   TicketDistributionStruct[] public ticketDistribution;
-  TicketDistributionStruct[] public ticketDistributionDaily;
 
   address[] public listOfPlayers; // Don't rely on this for current participants list
 
-  address[] public listOfPlayersDaily; // Don't rely on this for current participants list
-
   uint256 public numActivePlayers;
   uint256 public numTotalTickets;
-
-  uint256 public numActivePlayersDaily;
-  uint256 public numTotalTicketsDaily;
 
   // Daily
 
@@ -568,25 +581,15 @@ contract Jackpot is Context, IERC20 {
   mapping(uint256 => LotteryStruct) public lotteries; // key is lotteryId
   mapping(uint256 => mapping(address => uint256)) public pendingWithdrawals; // pending withdrawals for each winner, key is lotteryId, then player address
 
-  mapping(uint256 => uint256) public prizesDaily; // key is lotteryId
-  mapping(uint256 => WinningTicketStruct) public winningTicketsDaily; // key is lotteryId
-  mapping(address => bool) public playersDaily; // key is player address
-  mapping(address => uint256) public ticketsDaily; // key is player address
-  mapping(uint256 => LotteryStruct) public lotteriesDaily; // key is lotteryId
-  mapping(uint256 => mapping(address => uint256))
-    public pendingWithdrawalsDaily; // pending withdrawals for each winner, key is lotteryId, then player address
-
   mapping(address => uint256) public hodlBonus;
-
-  mapping(address => uint256) public hodlBonusDaily;
 
   mapping(address => uint256) public bnbAmount;
   mapping(address => uint256) public bnbAmountSell;
 
   // Events
   event LogNewLottery(address creator, uint256 startTime, uint256 endTime); // emit when lottery created
-  event LogTicketsMinted(address player, uint256 numTicketsMinted); // emit when user purchases tix
-  event LogTicketsUnminted(address player, uint256 numTicketsMinted); // emit when user sells tix
+  event LogTicketsBought(address player, uint256 numTickets); // emit when user purchases tix
+  event LogTicketsSold(address player, uint256 numTickets); // emit when user sells tix
 
   // emit when lottery drawing happens; winner found
   event LogWinnerFound(
@@ -610,8 +613,7 @@ contract Jackpot is Context, IERC20 {
 
   // Errors
   error Lottery__ActiveLotteryExists();
-  error Lottery__MintingPeriodClosed();
-  error Lottery__MintingNotCompleted();
+  error Lottery__NotCompleted();
   error Lottery__InadequateFunds();
   error Lottery__InvalidWinningIndex();
   error Lottery__InvalidWithdrawalAmount();
@@ -629,14 +631,6 @@ contract Jackpot is Context, IERC20 {
     }
     _;
   }
-  modifier isNewLotteryValidDaily() {
-    // active lottery
-    LotteryStruct memory lottery = lotteriesDaily[currentLotteryIdDaily];
-    if (lottery.isActive == true) {
-      revert Lottery__ActiveLotteryExists();
-    }
-    _;
-  }
 
   /*
     Checks if there is a lottery draw ongoing so people can't buy tickets
@@ -647,28 +641,18 @@ contract Jackpot is Context, IERC20 {
     inLotteryDraw = false;
   }
 
-  /* check that minting period is completed, and lottery drawing can begin
+  /* check that period is completed, and lottery drawing can begin
     either:
-    1. minting period manually ended, ie lottery is inactive. Then drawing can begin immediately.
-    2. lottery minting period has ended organically, and lottery is still active at that point
+    1.  period manually ended, ie lottery is inactive. Then drawing can begin immediately.
+    2. lottery period has ended organically, and lottery is still active at that point
     */
-  modifier isLotteryMintingCompleted() {
+  modifier isLotteryCompleted() {
     if (
       !((lotteries[currentLotteryId].isActive == true &&
         lotteries[currentLotteryId].endTime < block.timestamp) ||
         lotteries[currentLotteryId].isActive == false)
     ) {
-      revert Lottery__MintingNotCompleted();
-    }
-    _;
-  }
-  modifier isLotteryMintingCompletedDaily() {
-    if (
-      !((lotteriesDaily[currentLotteryIdDaily].isActive == true &&
-        lotteriesDaily[currentLotteryIdDaily].endTime < block.timestamp) ||
-        lotteriesDaily[currentLotteryIdDaily].isActive == false)
-    ) {
-      revert Lottery__MintingNotCompleted();
+      revert Lottery__NotCompleted();
     }
     _;
   }
@@ -679,10 +663,6 @@ contract Jackpot is Context, IERC20 {
     */
   function setLotteryInactive() public onlyOwner {
     lotteries[currentLotteryId].isActive = false;
-  }
-
-  function setLotteryInactiveDaily() public onlyOwner {
-    lotteriesDaily[currentLotteryIdDaily].isActive = false;
   }
 
   /*
@@ -698,8 +678,8 @@ contract Jackpot is Context, IERC20 {
   /*
     A function to initialize a lottery
     probably should also be onlyOwner
-    uint256 startTime_: start of minting period, unixtime
-    uint256 numHours: in hours, how long mint period will last
+    uint256 startTime_: start of period, unixtime
+    uint256 numHours: in hours, how long period will last
     */
   function initLottery(uint256 startTime_, uint256 numHours_)
     public
@@ -724,35 +704,12 @@ contract Jackpot is Context, IERC20 {
     emit LogNewLottery(msg.sender, startTime_, endTime);
   }
 
-  function initLotteryDaily(uint256 startTime_, uint256 numHours_)
-    public
-    onlyOwner
-    isNewLotteryValidDaily
-  {
-    // basically default value
-    // if set to 0, default to explicit default number of days
-    if (numHours_ == 0) {
-      numHours_ = NUMBER_OF_HOURS_DAILY;
-    }
-    uint256 endTime = startTime_ + (numHours_ * 1 hours);
-    lotteriesDaily[currentLotteryIdDaily] = LotteryStruct({
-      lotteryId: currentLotteryIdDaily,
-      startTime: startTime_,
-      endTime: endTime,
-      isActive: true,
-      isCompleted: false,
-      isCreated: true
-    });
-    numLotteriesDaily = numLotteriesDaily + 1;
-    emit LogNewLottery(msg.sender, startTime_, endTime);
-  }
-
   /*
-    a function for players to mint lottery tix
+    a function for players to lottery tix
     */
-  function mintLotteryTickets(uint256 numberOfTickets, address player) private {
-    uint256 _numTicketsToMint = numberOfTickets;
-    require(_numTicketsToMint >= 1);
+  function buyLotteryTickets(uint256 numberOfTickets, address player) private {
+    uint256 _numTickets = numberOfTickets;
+    require(_numTickets >= 1);
     // if player is "new" for current lottery, update the player lists
 
     uint256 _numActivePlayers = numActivePlayers;
@@ -766,102 +723,52 @@ contract Jackpot is Context, IERC20 {
       players[player] = true;
       numActivePlayers = _numActivePlayers + 1;
     }
-    tickets[player] = tickets[player] + _numTicketsToMint; // account for if user has already minted tix previously for this current lottery
-    numTotalTickets = numTotalTickets + _numTicketsToMint; // update the total # of tickets minted
-    emit LogTicketsMinted(player, _numTicketsToMint);
-  }
-
-  function mintLotteryTicketsDaily(uint256 numberOfTickets, address player)
-    private
-  {
-    uint256 _numTicketsToMint = numberOfTickets;
-    require(_numTicketsToMint >= 1);
-    // if player is "new" for current lottery, update the player lists
-
-    uint256 _numActivePlayers = numActivePlayersDaily;
-
-    if (playersDaily[player] == false) {
-      if (listOfPlayersDaily.length > _numActivePlayers) {
-        listOfPlayersDaily[_numActivePlayers] = player;
-      } else {
-        listOfPlayersDaily.push(player); // otherwise append to array
-      }
-      playersDaily[player] = true;
-      numActivePlayersDaily = _numActivePlayers + 1;
-    }
-    ticketsDaily[player] = ticketsDaily[player] + _numTicketsToMint; // account for if user has already minted tix previously for this current lottery
-    numTotalTicketsDaily = numTotalTicketsDaily + _numTicketsToMint; // update the total # of tickets minted
-    emit LogTicketsMinted(player, _numTicketsToMint);
+    tickets[player] = tickets[player] + _numTickets; // account for if user has already tix previously for this current lottery
+    numTotalTickets = numTotalTickets + _numTickets; // update the total # of tickets
+    emit LogTicketsBought(player, _numTickets);
   }
 
   /*
-    a function for players to unmint lottery tix
+    a function for players to lottery tix
     */
-  function unmintLotteryTickets(uint256 numberOfTickets, address player)
-    private
-  {
-    uint256 _numTicketsToMint = numberOfTickets;
-    require(_numTicketsToMint >= 1);
-    require(tickets[player] >= _numTicketsToMint); // double check that user has enough tix to unmint
+  function sellLotteryTickets(uint256 numberOfTickets, address player) private {
+    uint256 _numTickets = numberOfTickets;
+    require(_numTickets >= 1);
+    require(tickets[player] >= _numTickets); // double check that user has enough tix to sell
     // if player is "new" for current lottery, update the player lists
 
     //  uint _numActivePlayers = numActivePlayers;
 
-    tickets[player] = tickets[player] - _numTicketsToMint; // account for if user has already minted tix previously for this current lottery
-    numTotalTickets = numTotalTickets - _numTicketsToMint; // update the total # of tickets minted
-    emit LogTicketsUnminted(player, _numTicketsToMint);
-  }
-
-  function unmintLotteryTicketsDaily(uint256 numberOfTickets, address player)
-    private
-  {
-    uint256 _numTicketsToMint = numberOfTickets;
-    require(_numTicketsToMint >= 1);
-    require(ticketsDaily[player] >= _numTicketsToMint); // double check that user has enough tix to unmint
-    // if player is "new" for current lottery, update the player lists
-
-    //  uint _numActivePlayers = numActivePlayers;
-
-    ticketsDaily[player] = tickets[player] - _numTicketsToMint; // account for if user has already minted tix previously for this current lottery
-    numTotalTicketsDaily = numTotalTicketsDaily - _numTicketsToMint; // update the total # of tickets minted
-    emit LogTicketsUnminted(player, _numTicketsToMint);
+    tickets[player] = tickets[player] - _numTickets; // account for if user has already tix previously for this current lottery
+    numTotalTickets = numTotalTickets - _numTickets; // update the total # of tickets sell
+    emit LogTicketsSold(player, _numTickets);
   }
 
   /*
     a function for owner to trigger lottery drawing
     */
-  function triggerLotteryDrawing() public onlyOwner isLotteryMintingCompleted {
+
+  event winningticket(uint256 winner1);
+
+  function triggerLotteryDrawing() public onlyOwner isLotteryCompleted {
     // console.log("triggerLotteryDrawing");
     prizes[currentLotteryId] = prizeAmount; // keep track of prize amts for each of the previous lotteries
 
     _playerTicketDistribution(); // create the distribution to get ticket indexes for each user
-    // can't be done a priori bc of potential multiple mints per user
+    // can't be done a prior bc of potential multiple tix per user
     uint256 winningTicketIndex = _performRandomizedDrawing();
-    uint256 winningTicketIndex2 = _performRandomizedDrawing();
-    uint256 winningTicketIndex3 = _performRandomizedDrawing();
+    // uint256 winningTicketIndex2 = _performRandomizedDrawing();
+    //     uint256 winningTicketIndex3 = _performRandomizedDrawing();
 
-    while (winningTicketIndex2 == winningTicketIndex) {
-      winningTicketIndex2 = _performRandomizedDrawing();
-    }
-    while (
-      winningTicketIndex3 == winningTicketIndex ||
-      winningTicketIndex3 == winningTicketIndex2
-    ) {
-      winningTicketIndex3 = _performRandomizedDrawing();
-    }
     // initialize what we can first
     winningTicket.currentLotteryId = currentLotteryId;
     winningTicket.winningTicketIndex = winningTicketIndex;
-    winningTicket2.currentLotteryId = currentLotteryId;
-    winningTicket2.winningTicketIndex = winningTicketIndex2;
-    winningTicket3.currentLotteryId = currentLotteryId;
-    winningTicket3.winningTicketIndex = winningTicketIndex3;
-
-    findWinningAddress(
-      winningTicketIndex,
-      winningTicketIndex2,
-      winningTicketIndex3
-    ); // via binary search
+    // winningTicket2.currentLotteryId = currentLotteryId;
+    // winningTicket2.winningTicketIndex = winningTicketIndex2;
+    // winningTicket3.currentLotteryId = currentLotteryId;
+    // winningTicket3.winningTicketIndex = winningTicketIndex3;
+    emit winningticket(winningTicketIndex);
+    findWinningAddress(winningTicketIndex); // via binary search
     // TODO: send BNB to winner, emit an event
 
     emit LogWinnerFound(
@@ -869,67 +776,9 @@ contract Jackpot is Context, IERC20 {
       winningTicket.winningTicketIndex,
       winningTicket.addr
     );
-    emit LogWinnerFound(
-      currentLotteryId,
-      winningTicket2.winningTicketIndex,
-      winningTicket2.addr
-    );
-    emit LogWinnerFound(
-      currentLotteryId,
-      winningTicket3.winningTicketIndex,
-      winningTicket3.addr
-    );
+
     hodlBonus[winningTicket.addr] = 0;
-    hodlBonus[winningTicket2.addr] = 0;
-    hodlBonus[winningTicket3.addr] = 0;
   }
-
-  function triggerLotteryDrawingDaily()
-    public
-    onlyOwner
-    isLotteryMintingCompletedDaily
-  {
-    // console.log("triggerLotteryDrawing");
-    prizesDaily[currentLotteryIdDaily] = prizeAmountDaily; // keep track of prize amts for each of the previous lotteries
-
-    _playerTicketDistributionDaily(); // create the distribution to get ticket indexes for each user
-    // can't be done a priori bc of potential multiple mints per user
-    uint256 winningTicketIndex = _performRandomizedDrawingDaily();
-
-    // initialize what we can first
-    winningTicketDaily.currentLotteryId = currentLotteryIdDaily;
-    winningTicketDaily.winningTicketIndex = winningTicketIndex;
-
-    findWinningAddressDaily(winningTicketIndex); // via binary search
-    // TODO: send BNB to winner, emit an event
-
-    emit LogWinnerFound(
-      currentLotteryIdDaily,
-      winningTicketDaily.winningTicketIndex,
-      winningTicketDaily.addr
-    );
-
-    hodlBonusDaily[winningTicket.addr] = 0;
-  }
-
-  /*
-    function to deposit winnings for user withdrawal pattern
-    then reset lottery params for new one to be created
-    */
-  // function triggerDepositWinnings() public {
-  //     // console.log("triggerDepositWinnings");
-  //     pendingWithdrawals[currentLotteryId][winningTicket.addr] = prizeAmount;
-  //     prizeAmount = 0;
-  //     lotteries[currentLotteryId].isCompleted = true;
-  //     winningTickets[currentLotteryId] = winningTicket;
-  //     // emit before resetting lottery so vars still valid
-  //     emit LotteryWinningsDeposited(
-  //         currentLotteryId,
-  //         winningTicket.addr,
-  //         pendingWithdrawals[currentLotteryId][winningTicket.addr]
-  //     );
-  //     _resetLottery();
-  // }
 
   /*
     getter function for ticketDistribution bc its a struct
@@ -950,27 +799,11 @@ contract Jackpot is Context, IERC20 {
     );
   }
 
-  function getTicketDistributionDaily(uint256 playerIndex_)
-    public
-    view
-    returns (
-      address playerAddress,
-      uint256 startIndex, // inclusive
-      uint256 endIndex // inclusive
-    )
-  {
-    return (
-      ticketDistributionDaily[playerIndex_].playerAddress,
-      ticketDistributionDaily[playerIndex_].startIndex,
-      ticketDistributionDaily[playerIndex_].endIndex
-    );
-  }
-
   /*
     function to handle creating the ticket distribution
     if 1) player1 buys 10 tix, then 2) player2 buys 5 tix, and then 3) player1 buys 5 more
     player1's ticket indices will be 0-14; player2's from 15-19
-    this is why ticketDistribution cannot be determined until minting period is closed
+    this is why ticketDistribution cannot be determined until period is closed
     */
   function _playerTicketDistribution() private {
     uint256 _ticketDistributionLength = ticketDistribution.length; // so state var doesn't need to be invoked each iteration of loop
@@ -997,31 +830,6 @@ contract Jackpot is Context, IERC20 {
     }
   }
 
-  function _playerTicketDistributionDaily() private {
-    uint256 _ticketDistributionLength = ticketDistributionDaily.length; // so state var doesn't need to be invoked each iteration of loop
-
-    uint256 _ticketIndex = 0; // counter within loop
-    for (uint256 i = _ticketIndex; i < numActivePlayersDaily; i++) {
-      address _playerAddress = listOfPlayersDaily[i];
-      uint256 _numTickets = ticketsDaily[_playerAddress] +
-        _calculateHodlBonusDaily(_playerAddress);
-
-      TicketDistributionStruct memory newDistribution = TicketDistributionStruct({
-        playerAddress: _playerAddress,
-        startIndex: _ticketIndex,
-        endIndex: _ticketIndex + _numTickets - 1 // sub 1 to account for array indices starting from 0
-      });
-      if (_ticketDistributionLength > i) {
-        ticketDistributionDaily[i] = newDistribution;
-      } else {
-        ticketDistributionDaily.push(newDistribution);
-      }
-
-      ticketsDaily[_playerAddress] = 0; // reset player's tickets to 0 after they've been counted
-      _ticketIndex = _ticketIndex + _numTickets;
-    }
-  }
-
   /*
     function to generate random winning ticket index. Still need to find corresponding user afterwards.
     */
@@ -1034,75 +842,28 @@ contract Jackpot is Context, IERC20 {
     return Random.naiveRandInt(0, numTotalTickets - 1);
   }
 
-  function _performRandomizedDrawingDaily() private view returns (uint256) {
-    // console.log("_performRandomizedDrawing");
-    /* TASK: implement random drawing from 0 to numTotalTickets-1
-    use chainlink https://docs.chain.link/docs/get-a-random-number/ to get random values
-    */
-    return Random.naiveRandInt(0, numTotalTicketsDaily - 1);
-  }
-
   /*
     function to find winning player address corresponding to winning ticket index
     calls binary search
     uint256 winningTicketIndex_: ticket index selected as winner.
     Search for this within the ticket distribution to find corresponding Player
     */
-  function findWinningAddress(
-    uint256 winningTicketIndex1_,
-    uint256 winningTicketIndex2_,
-    uint256 winningTicketIndex3_
-  ) public {
+  function findWinningAddress(uint256 winningTicketIndex1_) public {
     // console.log("findWinningAddress");
     uint256 _numActivePlayers = numActivePlayers;
     if (_numActivePlayers == 1) {
       winningTicket.addr = ticketDistribution[0].playerAddress;
     } else {
       // do binary search on ticketDistribution array to find winner
-      uint256 _winningPlayerIndex = _binarySearch(
+      uint256 _winningPlayerIndex = _bSearch(
         0,
         _numActivePlayers - 1,
         winningTicketIndex1_
-      );
-      uint256 _winningPlayerIndex2 = _binarySearch(
-        0,
-        _numActivePlayers - 1,
-        winningTicketIndex2_
-      );
-      uint256 _winningPlayerIndex3 = _binarySearch(
-        0,
-        _numActivePlayers - 1,
-        winningTicketIndex3_
       );
       if (_winningPlayerIndex >= _numActivePlayers) {
         revert Lottery__InvalidWinningIndex();
       }
       winningTicket.addr = ticketDistribution[_winningPlayerIndex]
-        .playerAddress;
-      winningTicket2.addr = ticketDistribution[_winningPlayerIndex2]
-        .playerAddress;
-      winningTicket3.addr = ticketDistribution[_winningPlayerIndex3]
-        .playerAddress;
-    }
-  }
-
-  function findWinningAddressDaily(uint256 winningTicketIndex1_) public {
-    // console.log("findWinningAddress");
-    uint256 _numActivePlayers = numActivePlayersDaily;
-    if (_numActivePlayers == 1) {
-      winningTicketDaily.addr = ticketDistributionDaily[0].playerAddress;
-    } else {
-      // do binary search on ticketDistribution array to find winner
-      uint256 _winningPlayerIndex = _binarySearchDaily(
-        0,
-        _numActivePlayers - 1,
-        winningTicketIndex1_
-      );
-
-      if (_winningPlayerIndex >= _numActivePlayers) {
-        revert Lottery__InvalidWinningIndex();
-      }
-      winningTicketDaily.addr = ticketDistributionDaily[_winningPlayerIndex]
         .playerAddress;
     }
   }
@@ -1114,7 +875,7 @@ contract Jackpot is Context, IERC20 {
     uint256 ticketIndexToFind_ to search for
     */
 
-  function _binarySearch(
+  function _bSearch(
     uint256 leftIndex_,
     uint256 rightIndex_,
     uint256 ticketIndexToFind_
@@ -1139,11 +900,11 @@ contract Jackpot is Context, IERC20 {
       // go to left subarray
       rightIndex_ = _searchIndex - (leftIndex_);
 
-      return _binarySearch(leftIndex_, rightIndex_, ticketIndexToFind_);
+      return _bSearch(leftIndex_, rightIndex_, ticketIndexToFind_);
     } else if (ticketDistribution[_searchIndex].endIndex < ticketIndexToFind_) {
       // go to right subarray
       leftIndex_ = _searchIndex + (leftIndex_) + 1;
-      return _binarySearch(leftIndex_, rightIndex_, ticketIndexToFind_);
+      return _bSearch(leftIndex_, rightIndex_, ticketIndexToFind_);
     }
 
     // if nothing found (bug), return an impossible player index
@@ -1154,45 +915,6 @@ contract Jackpot is Context, IERC20 {
   /*
     function to reset lottery by setting state vars to defaults
     */
-
-  function _binarySearchDaily(
-    uint256 leftIndex_,
-    uint256 rightIndex_,
-    uint256 ticketIndexToFind_
-  ) private returns (uint256) {
-    uint256 _searchIndex = (rightIndex_ - leftIndex_) / (2) + (leftIndex_);
-    uint256 _loopCount = loopCount;
-    // counter
-    loopCount = _loopCount + 1;
-    if (_loopCount + 1 > maxLoops) {
-      // emergency stop in case infinite loop due to unforeseen bug
-      return numActivePlayersDaily;
-    }
-
-    if (
-      ticketDistributionDaily[_searchIndex].startIndex <= ticketIndexToFind_ &&
-      ticketDistributionDaily[_searchIndex].endIndex >= ticketIndexToFind_
-    ) {
-      return _searchIndex;
-    } else if (
-      ticketDistributionDaily[_searchIndex].startIndex > ticketIndexToFind_
-    ) {
-      // go to left subarray
-      rightIndex_ = _searchIndex - (leftIndex_);
-
-      return _binarySearch(leftIndex_, rightIndex_, ticketIndexToFind_);
-    } else if (
-      ticketDistributionDaily[_searchIndex].endIndex < ticketIndexToFind_
-    ) {
-      // go to right subarray
-      leftIndex_ = _searchIndex + (leftIndex_) + 1;
-      return _binarySearch(leftIndex_, rightIndex_, ticketIndexToFind_);
-    }
-
-    // if nothing found (bug), return an impossible player index
-    // this index is outside expected bound, bc indexes run from 0 to numActivePlayers-1
-    return numActivePlayersDaily;
-  }
 
   function _resetLottery() public {
     // console.log("_resetLottery");
@@ -1206,32 +928,9 @@ contract Jackpot is Context, IERC20 {
       winningTicketIndex: 0,
       addr: address(0)
     });
-    winningTicket2 = WinningTicketStruct({
-      currentLotteryId: 0,
-      winningTicketIndex: 0,
-      addr: address(0)
-    });
-    winningTicket3 = WinningTicketStruct({
-      currentLotteryId: 0,
-      winningTicketIndex: 0,
-      addr: address(0)
-    });
+
     // increment id counter
     currentLotteryId = currentLotteryId + (1);
-  }
-
-  function _resetLotteryDaily() public {
-    numTotalTicketsDaily = 0;
-    numActivePlayersDaily = 0;
-    lotteriesDaily[currentLotteryIdDaily].isActive = false;
-    lotteriesDaily[currentLotteryIdDaily].isCompleted = true;
-    winningTicketDaily = WinningTicketStruct({
-      currentLotteryId: 0,
-      winningTicketIndex: 0,
-      addr: address(0)
-    });
-
-    currentLotteryIdDaily = currentLotteryIdDaily + (1);
   }
 
   /*
@@ -1248,6 +947,386 @@ contract Jackpot is Context, IERC20 {
     return _hodlBonus;
   }
 
+  struct LotteryStructDaily {
+    uint256 lotteryId;
+    uint256 startTime;
+    uint256 endTime;
+    bool isActive;
+    bool isCompleted; // winner was found; winnings were deposited.
+    bool isCreated; // is created
+  }
+  struct TicketDistributionStructDaily {
+    address playerAddress;
+    uint256 startIndex; // inclusive
+    uint256 endIndex; // inclusive
+  }
+  struct WinningTicketStructDaily {
+    uint256 currentLotteryId;
+    uint256 winningTicketIndex;
+    address addr; // TASK: rename to "winningAddress"?
+  }
+
+  bool public inLotteryDrawDaily; //used so people can't buy while drawing lottery
+
+  // max # loops allowed for binary search; to prevent some bugs causing infinite loops in binary search
+  uint256 public maxLoopsDaily = 10;
+  uint256 private loopCountDaily = 0; // for binary search
+
+  uint256 public currentLotteryIdDaily = 0;
+  uint256 public numLotteriesDaily = 0;
+  uint256 public prizeAmountDaily;
+
+  WinningTicketStructDaily public winningTicketDaily;
+
+  TicketDistributionStructDaily[] public ticketDistributionDaily;
+
+  address[] public listOfPlayersDaily; // Don't rely on this for current participants list
+
+  uint256 public numActivePlayersDaily;
+  uint256 public numTotalTicketsDaily;
+
+  // Daily
+
+  mapping(uint256 => uint256) public prizesDaily; // key is lotteryId
+  mapping(uint256 => WinningTicketStructDaily) public winningTicketsDaily; // key is lotteryId
+  mapping(address => bool) public playersDaily; // key is player address
+  mapping(address => uint256) public ticketsDaily; // key is player address
+  mapping(uint256 => LotteryStructDaily) public lotteriesDaily; // key is lotteryId
+  mapping(uint256 => mapping(address => uint256))
+    public pendingWithdrawalsDaily; // pending withdrawals for each winner, key is lotteryId, then player address
+
+  mapping(address => uint256) public hodlBonusDaily;
+
+  // Events
+  event LogNewLotteryDaily(address creator, uint256 startTime, uint256 endTime); // emit when lottery created
+  event LogTicketsBoughtDaily(address player, uint256 numTickets); // emit when user purchases tix
+  event LogTicketsSoldDaily(address player, uint256 numTickets); // emit when user sells tix
+
+  // emit when lottery drawing happens; winner found
+  event LogWinnerFoundDaily(
+    uint256 lotteryId,
+    uint256 winningTicketIndex,
+    address winningAddress
+  );
+
+  // emit when owner has changed max player param
+  event LogMaxPlayersAllowedUpdatedDaily(uint256 maxPlayersAllowed);
+
+  // Errors
+  error Lottery__ActiveLotteryExistsDaily();
+  error Lottery__NotCompletedDaily();
+  error Lottery__InadequateFundsDaily();
+  error Lottery__InvalidWinningIndexDaily();
+  error Lottery__InvalidWithdrawalAmountDaily();
+  error Lottery__WithdrawalFailedDaily();
+
+  /* check that new lottery is a valid implementation
+    previous lottery must be inactive for new lottery to be saved
+    for when new lottery will be saved
+    */
+  modifier isNewLotteryValidDaily() {
+    // active lottery
+    LotteryStructDaily memory lotteryDaily = lotteriesDaily[
+      currentLotteryIdDaily
+    ];
+    if (lotteryDaily.isActive == true) {
+      revert Lottery__ActiveLotteryExistsDaily();
+    }
+    _;
+  }
+
+  /* check that round period is completed, and lottery drawing can begin
+    either:
+    1.  period manually ended, ie lottery is inactive. Then drawing can begin immediately.
+    2. lottery  period has ended organically, and lottery is still active at that point
+    */
+  modifier isLotteryCompletedDaily() {
+    if (
+      !((lotteriesDaily[currentLotteryIdDaily].isActive == true &&
+        lotteriesDaily[currentLotteryIdDaily].endTime < block.timestamp) ||
+        lotteriesDaily[currentLotteryIdDaily].isActive == false)
+    ) {
+      revert Lottery__NotCompletedDaily();
+    }
+    _;
+  }
+
+  /*
+    A function for owner to force update lottery status isActive to false
+    public because it needs to be called internally when a Lottery is cancelled
+    */
+  function setLotteryInactiveDaily() public {
+    lotteriesDaily[currentLotteryIdDaily].isActive = false;
+  }
+
+  /*
+    A function for owner to force update lottery to be cancelled
+    funds should be returned to players too
+    */
+  function cancelLotteryDaily() external {
+    setLotteryInactiveDaily();
+    _resetLotteryDaily();
+  }
+
+  /*
+    A function to initialize a lottery
+    probably should also be onlyOwner
+    uint256 startTime_: start of period, unixtime
+    uint256 numHours: in hours, how long period will last
+    */
+  function initLotteryDaily(uint256 startTime_, uint256 numHours_)
+    public
+    isNewLotteryValidDaily
+  {
+    // basically default value
+    // if set to 0, default to explicit default number of days
+    if (numHours_ == 0) {
+      numHours_ = NUMBER_OF_HOURS_DAILY;
+    }
+    uint256 endTime = startTime_ + (numHours_ * 1 hours);
+    lotteriesDaily[currentLotteryIdDaily] = LotteryStructDaily({
+      lotteryId: currentLotteryIdDaily,
+      startTime: startTime_,
+      endTime: endTime,
+      isActive: true,
+      isCompleted: false,
+      isCreated: true
+    });
+    numLotteriesDaily = numLotteriesDaily + 1;
+    emit LogNewLotteryDaily(msg.sender, startTime_, endTime);
+  }
+
+  /*
+    a function for players to lottery tix
+    */
+  function buyLotteryTicketsDaily(uint256 numberOfTickets, address player)
+    private
+  {
+    uint256 _numTickets = numberOfTickets;
+    require(_numTickets >= 1);
+    // if player is "new" for current lottery, update the player lists
+
+    uint256 _numActivePlayers = numActivePlayersDaily;
+
+    if (playersDaily[player] == false) {
+      if (listOfPlayersDaily.length > _numActivePlayers) {
+        listOfPlayersDaily[_numActivePlayers] = player;
+      } else {
+        listOfPlayersDaily.push(player); // otherwise append to array
+      }
+      playersDaily[player] = true;
+      numActivePlayersDaily = _numActivePlayers + 1;
+    }
+    ticketsDaily[player] = ticketsDaily[player] + _numTickets; // account for if user has already tix previously for this current lottery
+    numTotalTicketsDaily = numTotalTicketsDaily + _numTickets; // update the total # of tickets
+    emit LogTicketsBoughtDaily(player, _numTickets);
+  }
+
+  /*
+    a function for players to sell lottery tix
+    */
+  function sellLotteryTicketsDaily(uint256 numberOfTickets, address player)
+    private
+  {
+    uint256 _numTickets = numberOfTickets;
+    require(_numTickets >= 1);
+    require(ticketsDaily[player] >= _numTickets); // double check that user has enough tix
+    // if player is "new" for current lottery, update the player lists
+
+    //  uint _numActivePlayers = numActivePlayers;
+
+    ticketsDaily[player] = ticketsDaily[player] - _numTickets; // account for if user has already tix previously for this current lottery
+    numTotalTicketsDaily = numTotalTicketsDaily - _numTickets; // update the total # of tickets
+    emit LogTicketsSoldDaily(player, _numTickets);
+  }
+
+  /*
+    a function for owner to trigger lottery drawing
+    */
+
+  function triggerLotteryDrawingDaily() public isLotteryCompletedDaily {
+    // console.log("triggerLotteryDrawing");
+    prizesDaily[currentLotteryIdDaily] = prizeAmountDaily; // keep track of prize amts for each of the previous lotteries
+
+    _playerTicketDistributionDaily(); // create the distribution to get ticket indexes for each user
+    // can't be done a prior bc of potential multiple tix per user
+    uint256 winningTicketIndexDaily = _performRandomizedDrawingDaily();
+
+    // initialize what we can first
+    winningTicketDaily.currentLotteryId = currentLotteryIdDaily;
+    winningTicketDaily.winningTicketIndex = winningTicketIndexDaily;
+
+    findWinningAddressDaily(winningTicketIndexDaily); // via binary search
+    // TODO: send BNB to winner, emit an event
+
+    emit LogWinnerFoundDaily(
+      currentLotteryIdDaily,
+      winningTicketDaily.winningTicketIndex,
+      winningTicketDaily.addr
+    );
+
+    hodlBonusDaily[winningTicketDaily.addr] = 0;
+  }
+
+  /*
+    getter function for ticketDistribution bc its a struct
+    */
+  function getTicketDistributionDaily(uint256 playerIndex_)
+    public
+    view
+    returns (
+      address playerAddress,
+      uint256 startIndex, // inclusive
+      uint256 endIndex // inclusive
+    )
+  {
+    return (
+      ticketDistributionDaily[playerIndex_].playerAddress,
+      ticketDistributionDaily[playerIndex_].startIndex,
+      ticketDistributionDaily[playerIndex_].endIndex
+    );
+  }
+
+  /*
+    function to handle creating the ticket distribution
+    if 1) player1 buys 10 tix, then 2) player2 buys 5 tix, and then 3) player1 buys 5 more
+    player1's ticket indices will be 0-14; player2's from 15-19
+    this is why ticketDistribution cannot be determined until period is closed
+    */
+  function _playerTicketDistributionDaily() private {
+    uint256 _ticketDistributionLength = ticketDistributionDaily.length; // so state var doesn't need to be invoked each iteration of loop
+
+    uint256 _ticketIndex = 0; // counter within loop
+    for (uint256 i = _ticketIndex; i < numActivePlayersDaily; i++) {
+      address _playerAddress = listOfPlayersDaily[i];
+      uint256 _numTickets = ticketsDaily[_playerAddress] +
+        _calculateHodlBonusDaily(_playerAddress);
+
+      TicketDistributionStructDaily memory newDistributionDaily = TicketDistributionStructDaily({
+        playerAddress: _playerAddress,
+        startIndex: _ticketIndex,
+        endIndex: _ticketIndex + _numTickets - 1 // sub 1 to account for array indices starting from 0
+      });
+      if (_ticketDistributionLength > i) {
+        ticketDistributionDaily[i] = newDistributionDaily;
+      } else {
+        ticketDistributionDaily.push(newDistributionDaily);
+      }
+
+      ticketsDaily[_playerAddress] = 0; // reset player's tickets to 0 after they've been counted
+      _ticketIndex = _ticketIndex + _numTickets;
+    }
+  }
+
+  /*
+    function to generate random winning ticket index. Still need to find corresponding user afterwards.
+    */
+
+  function _performRandomizedDrawingDaily() private view returns (uint256) {
+    // console.log("_performRandomizedDrawing");
+    /* TASK: implement random drawing from 0 to numTotalTickets-1
+    use chainlink https://docs.chain.link/docs/get-a-random-number/ to get random values
+    */
+    return Random.naiveRandInt(0, numTotalTicketsDaily - 1);
+  }
+
+  /*
+    function to find winning player address corresponding to winning ticket index
+    calls binary search
+    uint256 winningTicketIndex_: ticket index selected as winner.
+    Search for this within the ticket distribution to find corresponding Player
+    */
+  function findWinningAddressDaily(uint256 winningTicketIndex1_) public {
+    // console.log("findWinningAddress");
+    uint256 _numActivePlayers = numActivePlayersDaily;
+    if (_numActivePlayers == 1) {
+      winningTicketDaily.addr = ticketDistributionDaily[0].playerAddress;
+    } else {
+      // do binary search on ticketDistribution array to find winner
+      uint256 _winningPlayerIndex = _bSearchDaily(
+        0,
+        _numActivePlayers - 1,
+        winningTicketIndex1_
+      );
+      if (_winningPlayerIndex >= _numActivePlayers) {
+        revert Lottery__InvalidWinningIndexDaily();
+      }
+      winningTicketDaily.addr = ticketDistributionDaily[_winningPlayerIndex]
+        .playerAddress;
+    }
+  }
+
+  /*
+    function implementing binary search on ticket distribution var
+    uint256 leftIndex_ initially 0
+    uint256 rightIndex_ initially max ind, ie array.length - 1
+    uint256 ticketIndexToFind_ to search for
+    */
+
+  function _bSearchDaily(
+    uint256 leftIndex_,
+    uint256 rightIndex_,
+    uint256 ticketIndexToFind_
+  ) private returns (uint256) {
+    uint256 _searchIndex = (rightIndex_ - leftIndex_) / (2) + (leftIndex_);
+    uint256 _loopCount = loopCountDaily;
+    // counter
+    loopCountDaily = _loopCount + 1;
+    if (_loopCount + 1 > maxLoopsDaily) {
+      // emergency stop in case infinite loop due to unforeseen bug
+      return numActivePlayersDaily;
+    }
+
+    if (
+      ticketDistributionDaily[_searchIndex].startIndex <= ticketIndexToFind_ &&
+      ticketDistributionDaily[_searchIndex].endIndex >= ticketIndexToFind_
+    ) {
+      return _searchIndex;
+    } else if (
+      ticketDistributionDaily[_searchIndex].startIndex > ticketIndexToFind_
+    ) {
+      // go to left subarray
+      rightIndex_ = _searchIndex - (leftIndex_);
+
+      return _bSearchDaily(leftIndex_, rightIndex_, ticketIndexToFind_);
+    } else if (
+      ticketDistributionDaily[_searchIndex].endIndex < ticketIndexToFind_
+    ) {
+      // go to right subarray
+      leftIndex_ = _searchIndex + (leftIndex_) + 1;
+      return _bSearchDaily(leftIndex_, rightIndex_, ticketIndexToFind_);
+    }
+
+    // if nothing found (bug), return an impossible player index
+    // this index is outside expected bound, bc indexes run from 0 to numActivePlayers-1
+    return numActivePlayersDaily;
+  }
+
+  /*
+    function to reset lottery by setting state vars to defaults
+    */
+
+  function _resetLotteryDaily() public {
+    // console.log("_resetLottery");
+
+    numTotalTicketsDaily = 0;
+    numActivePlayersDaily = 0;
+    lotteriesDaily[currentLotteryIdDaily].isActive = false;
+    lotteriesDaily[currentLotteryIdDaily].isCompleted = true;
+    winningTicketDaily = WinningTicketStructDaily({
+      currentLotteryId: 0,
+      winningTicketIndex: 0,
+      addr: address(0)
+    });
+
+    // increment id counter
+    currentLotteryIdDaily = currentLotteryIdDaily + (1);
+  }
+
+  /*
+    function calculate hodl bonus tickets (one per hour)
+    */
+
   function _calculateHodlBonusDaily(address player)
     public
     view
@@ -1260,26 +1339,5 @@ contract Jackpot is Context, IERC20 {
     }
 
     return _hodlBonus;
-  }
-
-  // calculate price based on pair reserves
-
-  /*
-formula for ticket:
-getTokenPrice/(0.05*(10**18))
-getTokenPrice/(5*(10**16))
-*/
-  function getTokenPrice(address pairAddress, uint256 amount)
-    public
-    view
-    returns (uint256)
-  {
-    IUniswapV2Pair pair = IUniswapV2Pair(pairAddress);
-    IERC20 token1 = IERC20(pair.token1());
-    (uint256 Res0, uint256 Res1, ) = pair.getReserves();
-
-    // decimals
-    uint256 res0 = Res0 * (10**pair.decimals());
-    return ((amount * res0) / Res1); // return amount of token0 needed to buy token1
   }
 }

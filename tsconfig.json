@@ -8,6 +8,6 @@
     "declaration": true,
     "moduleResolution": "node",
   },
-  "include": ["./scripts", "./test", "./typechain", "./utils"],
+  "include": ["./scripts", "./test", "./typechain", "./utils", "tasks/test-meta.js"],
   "files": ["./hardhat.config.ts"]
 }
